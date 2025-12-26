@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>متتبع صلاحية الأدوية | مستشفى جازان</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root { --primary: #667eea; --secondary: #764ba2; }
+        body { font-family: 'Cairo', sans-serif; background-color: #f8fafc; }
+        .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .card-neo { background: #ffffff; border-radius: 1.5rem; box-shadow: 0 4px 20px -5px rgba(0,0,0,0.05); transition: all 0.3s; }
+        .medication-card { animation: slideInUp 0.4s ease-out backwards; }
+        @keyframes slideInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .alert-pulse { animation: pulse-red 2s infinite; }
+        @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        #reader video { border-radius: 1rem; width: 100% !important; }
+        .scanning-line { height: 3px; background: #00f2ff; position: absolute; width: 100%; top: 10%; animation: scan 3s infinite linear; box-shadow: 0 0 15px #00f2ff; z-index: 30; }
+        @keyframes scan { 0%, 100% { top: 15%; } 50% { top: 85%; } }
+    </style>
+</head>
+<body class="h-full text-slate-800">
+
+    <!-- شاشة تسجيل الدخول -->
+    <div id="auth-screen" class="min-h-screen flex items-center justify-center p-6 gradient-bg">
+        <div class="bg-white/95 backdrop-blur-md w-full max-w-sm rounded-[2.5rem] shadow-2xl p-10 text-center">
+            <div class="w-20 h-20 bg-blue-50 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-inner text-[#667eea]">
+                <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.628.282a2 2 0 01-1.806 0l-.628-.282a6 6 0 00-3.86-.517l-2.387.477a2 2 0 00-1.022.547m0 0l-1.1 4.95a2 2 0 001.956 2.434h13.088a2 2 0 001.956-2.434l-1.1-4.95z"></path></svg>
+            </div>
+            <h2 class="text-xl font-black text-[#667eea] mb-1">دخول النظام الآمن</h2>
+            <p class="text-[10px] text-slate-400 mb-8 font-bold tracking-widest">مستشفى جازان الجامعي</p>
+            
+            <div class="space-y-4 text-right">
+                <input id="staff-id" type="text" placeholder="الرقم الوظيفي (Admin)" class="w-full p-4 rounded-xl bg-slate-100 outline-none focus:ring-2 focus:ring-[#667eea] font-bold text-center">
+                <input id="staff-pass" type="password" placeholder="كلمة المرور (12345)" class="w-full p-4 rounded-xl bg-slate-100 outline-none focus:ring-2 focus:ring-[#667eea] font-bold text-center">
+                <button onclick="login()" class="w-full py-4 gradient-bg text-white rounded-xl font-black shadow-lg active:scale-95 transition-all mt-6">دخول</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- التطبيق الرئيسي -->
+    <div id="main-app" class="hidden min-h-screen flex flex-col">
+        <header class="gradient-bg text-white p-6 rounded-b-[2.5rem] shadow-xl sticky top-0 z-50">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                    <div class="bg-white/20 p-2 rounded-lg backdrop-blur-sm relative">
+                        <span id="alert-dot" class="hidden absolute -top-1 -right-1 w-3 h-3 bg-red-500 border-2 border-white rounded-full"></span>
+                        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                    </div>
+                    <div>
+                        <h1 class="font-black text-sm" id="display-name">المشرف العام</h1>
+                        <p class="text-[9px] opacity-80" id="display-id"></p>
+                    </div>
+                </div>
+                <button onclick="location.reload()" class="p-2 opacity-70"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg></button>
+            </div>
+        </header>
+
+        <main class="flex-1 p-5 space-y-6 overflow-auto">
+            <!-- التنبيهات -->
+            <div id="notif-bar" class="hidden bg-red-50 border border-red-100 p-4 rounded-2xl flex items-center gap-3 alert-pulse">
+                <div class="text-red-500"><svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg></div>
+                <p id="notif-text" class="text-[11px] font-bold text-red-700"></p>
+            </div>
+
+            <!-- أزرار الإجراءات -->
+            <div class="grid grid-cols-2 gap-4">
+                <button onclick="openScanner('ocr')" class="card-neo p-5 flex flex-col items-center justify-center gap-3 border border-blue-50">
+                    <div class="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center">
+                        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path></svg>
+                    </div>
+                    <span class="text-[10px] font-black">مسح التاريخ (AI)</span>
+                </button>
+                <button onclick="openScanner('barcode')" class="card-neo p-5 flex flex-col items-center justify-center gap-3 border border-purple-50">
+                    <div class="w-12 h-12 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center">
+                        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path></svg>
+                    </div>
+                    <span class="text-[10px] font-black">مسح الباركود</span>
+                </button>
+            </div>
+
+            <!-- الإحصائيات -->
+            <div class="grid grid-cols-3 gap-3">
+                <div class="card-neo p-3 text-center">
+                    <p class="text-[8px] font-bold text-slate-400">الإجمالي</p>
+                    <p id="stat-total" class="text-lg font-black text-blue-900">0</p>
+                </div>
+                <div class="card-neo p-3 text-center border-b-2 border-orange-400">
+                    <p class="text-[8px] font-bold text-slate-400">قريب</p>
+                    <p id="stat-near" class="text-lg font-black text-orange-600">0</p>
+                </div>
+                <div class="card-neo p-3 text-center border-b-2 border-red-400">
+                    <p class="text-[8px] font-bold text-slate-400">منتهي</p>
+                    <p id="stat-exp" class="text-lg font-black text-red-600">0</p>
+                </div>
+            </div>
+
+            <!-- قائمة الأدوية -->
+            <div class="flex justify-between items-center px-1">
+                <h2 class="font-black text-slate-700 text-sm">مخزون الأدوية</h2>
+                <button onclick="exportExcel()" class="text-[9px] font-bold text-green-600 bg-green-50 px-3 py-1 rounded-lg border border-green-100">تصدير Excel</button>
+            </div>
+            <div id="inventory-list" class="space-y-3"></div>
+        </main>
+    </div>
+
+    <!-- نافذة المسح الضوئي (مودال) -->
+    <div id="scan-modal" class="hidden fixed inset-0 z-[100] bg-black/95 flex flex-col items-center justify-center p-6">
+        <div class="w-full max-w-sm relative">
+            <div id="reader-container" class="rounded-[2rem] overflow-hidden bg-slate-900 aspect-square border-2 border-white/20 relative">
+                <div id="reader-ocr" class="hidden w-full h-full relative">
+                    <video id="video-ocr" autoplay playsinline class="w-full h-full object-cover"></video>
+                    <div class="scanning-line"></div>
+                </div>
+                <div id="reader-barcode" class="hidden w-full h-full"></div>
+            </div>
+            
+            <div class="mt-8 space-y-4 w-full">
+                <button id="ocr-capture-btn" class="hidden w-full py-4 bg-white text-blue-900 rounded-2xl font-black shadow-xl" onclick="processOCR()">التقاط وتحليل النص</button>
+                <div id="loading-spinner" class="hidden flex flex-col items-center gap-2">
+                    <div class="w-8 h-8 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
+                    <span class="text-white text-xs font-bold">جاري المعالجة...</span>
+                </div>
+                <button onclick="closeScanner()" class="w-full py-2 text-white/40 font-bold text-xs text-center">إغلاق</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- نافذة تأكيد الإضافة -->
+    <div id="confirm-modal" class="hidden fixed inset-0 z-[110] bg-slate-900/60 backdrop-blur-sm p-6 flex items-center justify-center">
+        <div class="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl">
+            <h3 class="text-lg font-black text-blue-900 mb-6">بيانات الدواء الجديدة</h3>
+            <div class="space-y-4">
+                <input id="in-name" type="text" placeholder="اسم الدواء" class="w-full p-4 rounded-xl bg-slate-50 font-bold text-sm outline-none border-2 border-transparent focus:border-[#667eea]">
+                <div class="grid grid-cols-2 gap-3">
+                    <input id="in-exp" type="date" class="w-full p-4 rounded-xl bg-slate-50 font-bold text-xs outline-none">
+                    <input id="in-qty" type="number" placeholder="الكمية" value="1" class="w-full p-4 rounded-xl bg-slate-50 font-bold text-sm text-center outline-none">
+                </div>
+                <textarea id="in-notes" rows="2" placeholder="ملاحظات..." class="w-full p-4 rounded-xl bg-slate-50 text-xs font-bold outline-none"></textarea>
+                <button onclick="saveMedication()" class="w-full py-4 gradient-bg text-white rounded-xl font-black shadow-lg">حفظ في النظام</button>
+                <button onclick="document.getElementById('confirm-modal').classList.add('hidden')" class="w-full py-2 text-slate-400 font-bold text-xs text-center">تجاهل</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let inventory = JSON.parse(localStorage.getItem('juh_med_tracker_v2')) || [];
+        let html5QrCode = null;
+        let videoStream = null;
+
+        function login() {
+            const sid = document.getElementById('staff-id').value;
+            const spass = document.getElementById('staff-pass').value;
+            if (sid === "Admin" && spass === "12345") {
+                document.getElementById('auth-screen').style.display = 'none';
+                document.getElementById('main-app').classList.remove('hidden');
+                document.getElementById('display-id').innerText = "الرقم الوظيفي: " + sid;
+                updateUI();
+            } else alert("بيانات الدخول غير صحيحة");
+        }
+
+        async function openScanner(mode) {
+            document.getElementById('scan-modal').classList.remove('hidden');
+            if (mode === 'ocr') {
+                document.getElementById('reader-ocr').classList.remove('hidden');
+                document.getElementById('reader-barcode').classList.add('hidden');
+                document.getElementById('ocr-capture-btn').classList.remove('hidden');
+                try {
+                    videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                    document.getElementById('video-ocr').srcObject = videoStream;
+                } catch (e) { alert("لا يمكن الوصول للكاميرا"); closeScanner(); }
+            } else {
+                document.getElementById('reader-ocr').classList.add('hidden');
+                document.getElementById('reader-barcode').classList.remove('hidden');
+                document.getElementById('ocr-capture-btn').classList.add('hidden');
+                html5QrCode = new Html5Qrcode("reader-barcode");
+                html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, (text) => {
+                    document.getElementById('in-name').value = text;
+                    closeScanner();
+                    document.getElementById('confirm-modal').classList.remove('hidden');
+                });
+            }
+        }
+
+        async function processOCR() {
+            const video = document.getElementById('video-ocr');
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+
+            document.getElementById('ocr-capture-btn').classList.add('hidden');
+            document.getElementById('loading-spinner').classList.remove('hidden');
+
+            try {
+                const result = await Tesseract.recognize(canvas.toDataURL(), 'eng+ara');
+                const text = result.data.text;
+                const normalized = text.replace(/[٠-٩]/g, d => "0123456789"["٠١٢٣٤٥٦٧٨٩".indexOf(d)]);
+                const dateMatch = normalized.match(/(\d{2}[\/\-]\d{4})|(\d{4}[\/\-]\d{2})/);
+                
+                if (dateMatch) {
+                    const parts = dateMatch[0].split(/[\/\-]/);
+                    document.getElementById('in-exp').value = parts[1].length === 4 ? `${parts[1]}-${parts[0].padStart(2, '0')}-01` : `${parts[0]}-${parts[1].padStart(2, '0')}-01`;
+                }
+                document.getElementById('in-name').value = text.split('\n')[0].substring(0, 20);
+                closeScanner();
+                document.getElementById('confirm-modal').classList.remove('hidden');
+            } catch (e) { alert("فشل التحليل الضوئي"); }
+            finally {
+                document.getElementById('loading-spinner').classList.add('hidden');
+            }
+        }
+
+        function closeScanner() {
+            if (videoStream) videoStream.getTracks().forEach(t => t.stop());
+            if (html5QrCode) html5QrCode.stop().catch(() => {});
+            document.getElementById('scan-modal').classList.add('hidden');
+        }
+
+        function saveMedication() {
+            const med = {
+                id: Date.now(),
+                name: document.getElementById('in-name').value || "غير معروف",
+                exp: document.getElementById('in-exp').value,
+                qty: document.getElementById('in-qty').value,
+                notes: document.getElementById('in-notes').value
+            };
+            if (!med.exp) return alert("يرجى تحديد تاريخ الانتهاء");
+            inventory.push(med);
+            localStorage.setItem('juh_med_tracker_v2', JSON.stringify(inventory));
+            document.getElementById('confirm-modal').classList.add('hidden');
+            updateUI();
+        }
+
+        function updateUI() {
+            const list = document.getElementById('inventory-list');
+            list.innerHTML = '';
+            let near = 0, expired = 0;
+            const now = new Date();
+            const limit = new Date(); limit.setMonth(now.getMonth() + 3);
+
+            inventory.sort((a,b) => new Date(a.exp) - new Date(b.exp)).forEach(item => {
+                const itemExp = new Date(item.exp);
+                const isExpired = itemExp < now;
+                const isNear = itemExp <= limit && !isExpired;
+                
+                if (isExpired) expired++;
+                if (isNear) near++;
+
+                const card = document.createElement('div');
+                card.className = `medication-card card-neo p-4 border-r-4 ${isExpired ? 'border-red-500' : isNear ? 'border-orange-500' : 'border-[#667eea]'} flex justify-between items-center`;
+                card.innerHTML = `
+                    <div class="flex-1">
+                        <h4 class="font-black text-xs">${item.name}</h4>
+                        <div class="flex gap-3 mt-1 text-[10px] font-bold">
+                            <span class="${isExpired ? 'text-red-600' : isNear ? 'text-orange-600' : 'text-slate-400'}">انتهء: ${item.exp}</span>
+                            <span class="text-blue-600">كمية: ${item.qty}</span>
+                        </div>
+                    </div>
+                    <button onclick="deleteItem(${item.id})" class="text-slate-300 hover:text-red-500 p-2"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg></button>
+                `;
+                list.appendChild(card);
+            });
+
+            document.getElementById('stat-total').innerText = inventory.length;
+            document.getElementById('stat-near').innerText = near;
+            document.getElementById('stat-exp').innerText = expired;
+
+            const bar = document.getElementById('notif-bar');
+            if (near > 0 || expired > 0) {
+                bar.classList.remove('hidden');
+                document.getElementById('alert-dot').classList.remove('hidden');
+                document.getElementById('notif-text').innerText = `تنبيه: يوجد ${expired} صنف منتهي و ${near} صنف قريب الانتهاء!`;
+            } else {
+                bar.classList.add('hidden');
+                document.getElementById('alert-dot').classList.add('hidden');
+            }
+        }
+
+        function deleteItem(id) {
+            if (confirm("هل تريد حذف هذا الدواء؟")) {
+                inventory = inventory.filter(i => i.id !== id);
+                localStorage.setItem('juh_med_tracker_v2', JSON.stringify(inventory));
+                updateUI();
+            }
+        }
+
+        function exportExcel() {
+            const ws = XLSX.utils.json_to_sheet(inventory);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Inventory");
+            XLSX.writeFile(wb, "Pharmacy_Report.xlsx");
+        }
+    </script>
+</body>
+</html>
